@@ -180,40 +180,57 @@ class Var(compiler.Compiler):
                 new_val = self.select_arg(Constant(value))
                 return [Instr('movq', [new_val, arg_x])]
             case Assign([x], UnaryOp(USub(), Constant(n))):
-                return [Instr('negq', [x]),
-                        Instr('movq', [n, x])]
+                arg_x = self.select_arg(x)
+                return [Instr('negq', [arg_x]),
+                        Instr('movq', [n, arg_x])]
                         
             case Assign([x], UnaryOp(USub(), e)):
+                arg_x = self.select_arg(x)
                 num = self.select_stmt(e)
-                return [Instr('negq', [x]),
-                        Instr('movq', [num, x])]
+                return [Instr('negq', [arg_x]),
+                        Instr('movq', [num, arg_x])]
 
             case Assign([x], BinOp(left, Add(), right)) if x == left:
+                arg_x = self.select_arg(x)
+                arg_right = self.select_arg(right)
                 # x = x + 1 => [addq $0x1 x]
-                return [Instr('addq', [right, x])]
+                return [Instr('addq', [arg_right, arg_x])]
             case Assign([x], BinOp(left, Add(), right)) if x == right:
+                arg_x = self.select_arg(x)
+                arg_left = self.select_arg(left)
                 # x = 1 + x => [addq $0x1 x]
-                return [Instr('addq', [left, x])]
+                return [Instr('addq', [arg_left, arg_x])]
             case Assign([x], BinOp(left, Add(), right)):
-                return [Instr('addq', [left, x]), 
-                        Instr('addq', [right, x])]
+                arg_x = self.select_arg(x)
+                arg_left = self.select_arg(left)
+                arg_right = self.select_arg(right)
+                return [Instr('addq', [arg_left, arg_x]), 
+                        Instr('addq', [arg_right, arg_x])]
                 # x = y + z => [movq y x; addq z x]
 
             case Assign([x], BinOp(left, Sub(), right)) if x == left: 
+                arg_x = self.select_arg(x)
+                arg_right = self.select_arg(right)
                 # x = x - arg => [subq arg x]
-                return [Instr('subq', [right, x])]
+                return [Instr('subq', [arg_right, arg_x])]
             case Assign([x], BinOp(left, Sub(), right)) if x == right:
+                arg_x = self.select_arg(x)
+                arg_left = self.select_arg(left)
                 # x = arg - x => [negq x; addq arg x]
-                return [Instr('negq', [x]),
-                        Instr('addq', [left, x])]
+                return [Instr('negq', [arg_x]),
+                        Instr('addq', [arg_left, arg_x])]
             case Assign([x], BinOp(left, Sub(), right)):
                 # x = y - z   => [movq y x; subq z x]
-                return [Instr('movq', [left, x]),
-                        Instr('subq', [right, x])]
+                arg_x = self.select_arg(x)
+                arg_left = self.select_arg(left)
+                arg_right = self.select_arg(right)
+                return [Instr('movq', [arg_left, arg_x]),
+                        Instr('subq', [arg_right, arg_x])]
 
-            case Assign([Name(x)], Call(Name('input_int'), [])):
+            case Assign([x], Call(Name('input_int'), [])):
+                arg_x = self.select_arg(x)
                 return [Callq('read_int', []), # stores its answer in Reg('rax')
-                        Instr('movq', [Reg('rax'), Variable(x)])] 
+                        Instr('movq', [Reg('rax'), arg_x])] 
             case _:
                 raise Exception('error in select_stmt, unknown: ' + repr(set))
 
@@ -233,7 +250,7 @@ class Var(compiler.Compiler):
     ############################################################################
     # Assign Homes
     ############################################################################
-    '''
+    
     @staticmethod
     def gen_stack_access(i: int) -> arg:
         return Deref('rbp', -(8 + 8 * i))
@@ -261,7 +278,7 @@ class Var(compiler.Compiler):
     ############################################################################
     # Patch Instructions
     ############################################################################
-    
+    '''
     def in_memory(self, a: arg) -> bool:
         pass # return true if the arg is a Deref. isInstance(...)
 
