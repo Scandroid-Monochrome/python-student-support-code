@@ -36,30 +36,32 @@ class Compiler:
             case _:
                 return BinOp(r1, Sub(), r2)
             
-    def pe_exp(self, e):
+    def pe_exp(self, e, env):
         match e:
             case BinOp(left, Add(), right):
-                return self.pe_add(self.pe_exp(left), self.pe_exp(right))
+                leftExp = self.pe_exp(left, env)
+                rightExp = self.pe_exp(right, env)
+                return self.pe_add(leftExp, rightExp)
             case BinOp(left, Sub(), right):
-                return self.pe_sub(self.pe_exp(left), self.pe_exp(right))
+                return self.pe_sub(self.pe_exp(left, env), self.pe_exp(right, env))
             case UnaryOp(USub(), v):
-                return self.pe_neg(self.pe_exp(v))
+                return self.pe_neg(self.pe_exp(v, env))
             case Constant(value):
                 return e
             case Call(Name('input_int'), []):
                 return e
             
-    def pe_stmt(self, s):
+    def pe_stmt(self, s, env):
         match s:
             case Expr(Call(Name('print'), [arg])):
-                return Expr(Call(Name('print'), [self.pe_exp(arg)]))
+                return Expr(Call(Name('print'), [self.pe_exp(arg, env)]))
             case Expr(value):
-                return Expr(self.pe_exp(value))
+                return Expr(self.pe_exp(value, env))
     
-    def partial_eval(self, p: Module) -> Module:
+    def partial_eval(self, p: Module, env) -> Module:
         match p:
             case Module(body):
-                new_body = [self.pe_stmt(s) for s in body]
+                new_body = [self.pe_stmt(s, env) for s in body]
                 return Module(new_body)
 
     # def partial_eval(self, p: Module) -> Module:

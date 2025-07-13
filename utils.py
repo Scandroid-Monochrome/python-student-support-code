@@ -617,7 +617,7 @@ def generate_name(name):
     ls = name.split('.')
     new_id = name_id
     name_id += 1
-    return ls[0] + '.' + str(new_id)
+    return ls[0] + '.' + str(new_id) 
 
 
 ################################################################################

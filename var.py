@@ -23,6 +23,7 @@ import interp_Lvar
 import type_check_Lvar
 # import var
 from eval_x86 import interp_x86
+from typing import Tuple
 
 
 
@@ -36,28 +37,47 @@ class Var(compiler.Compiler):
     ############################################################################
 
     # TODO: (Exercise 2.7) Update to handle Var syntax
+
+    def partial_eval(self, p: Module) -> Module:
+        match p:
+            case Module(body):
+                env: Dict[str, expr] = {} # Variable storage
+                new_body = []
+                for s in body:
+                    evaluated_stmts = self.pe_stmt(s, env)
+                    if evaluated_stmts:
+                        new_body.append(evaluated_stmts)
+                return Module(new_body)
   
-    def partial_eval_stmt(self, s, env, cont):
+    def pe_stmt(self, s, env):
         match s:
             case Assign([Name(x)], e): # x = e
-                env[x] = self.partial_eval_exp(self, e, env, cont) # returns an assignment of x such that e is self.partially evaluated
-                return Assign([Name(x)], e) #+ super().partial_eval(self, cont)
+                # Evaluate the variable name
+                evaluated_e = self.pe_exp(e, env)
+                # Put variable name into dictionary
+                env[x] = evaluated_e # returns an assignment of x such that e is self.partially evaluated
+                # Return the assign statement with the simplified value
+                return Assign([Name(x)], evaluated_e)
             case _:
-                return super().pe_stmt(s) + super().partial_eval(self, cont) # call L_int's partial eval
+                return super().pe_stmt(s, env) # call L_int's partial eval
     
-    def partial_eval_exp(self, e, env, cont):
+    def pe_exp(self, e, env):
         match e:
             case Name(x):
-                print("Current var:" + env[x])
-                return env[x] # return the name expression as is
+                # If the variable exists:
+                if x in env:
+                    return env[x] # return the value
+                # If the variable doesn't:
+                else:
+                    return Name(x) # return the name expression as is
             case _:
-                return super().pe_exp(e) # returning e as super.partially eval'd
+                return super().pe_exp(e, env) # returning e as super.partially eval'd
 
     # TODO: Uncomment and complete the below:
     ############################################################################
     # Remove Complex Operands
     ############################################################################
-    '''
+    
     def rco_exp(self, e: expr, need_atomic : bool) -> Tuple[expr, Temporaries]: # Temp = [(Name, exp)]
         match e:
             case Name(x):
@@ -65,7 +85,18 @@ class Var(compiler.Compiler):
             case Constant(n):
                 return Constant(n), []
             case BinOp(left, op, right):
-                pass # TODO: Similar to UnaryOp
+                temps = []
+                leftValues = self.rco_exp(left, True) #s_o must be an x or an n
+                rightValues = self.rco_exp(right, True) #s_o must be an x or an n
+                simplified_left = leftValues[0]
+                simplified_right = rightValues[0]
+                temps += leftValues[1]
+                temps += rightValues[1]
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    return tmp, temps + [(tmp, BinOp(simplified_left, op, simplified_right))]
+                else:
+                    return BinOp(simplified_left, op, simplified_right), temps
             case UnaryOp(op, operand):
                 (simplified_operand, temps) = self.rco_exp(operand, True) #s_o must be an x or an n
                 if need_atomic:
@@ -74,17 +105,29 @@ class Var(compiler.Compiler):
                 else:
                     return UnaryOp(op, simplified_operand), temps
             case Call(f, args):
-                pass # search back in video, also do same if/else for building a simple call expression
+                simplified_args = []
+                temps = []
+                for arg in args:
+                    # argsAndTemps: Tuple[expr, Temporaries]
+                    argsAndTemps = (self.rco_exp(arg, True)) #s_o must be an x or an n
+                    simplified_args.append(argsAndTemps[0])
+                    temps.extend(argsAndTemps[1])
+
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    return tmp, temps + [(tmp, Call(f, simplified_args))]
+                else:
+                    return Call(f, simplified_args), temps
             case _:
                 raise Exception('error_rco_exp: ' + repr(e))      
 
     def rco_stmt(self, s: stmt) -> List[stmt]:
         match s: 
             case Assign([Name(x)], e):
-                pass # TODO: do the same thing for assign, ending with an Assign stmt(very similar)
+                return [Assign([Name(x)], e)] # TODO: do the same thing for assign, ending with an Assign stmt(very similar)
             case Expr(e):
                 simpl_e, temps = self.rco_exp(e, False)
-                assigned_temps = [Assign(t, e_sub) for (t, e_sub) in temps]
+                assigned_temps = [Assign([t], e_sub) for (t, e_sub) in temps]
                 return assigned_temps + [Expr(simpl_e)]
             case _:
                 raise Exception('error_rco_stmt: ' + repr(s))
@@ -92,8 +135,15 @@ class Var(compiler.Compiler):
     def remove_complex_operands(self, p: Module) -> Module:
         match p:
             case Module(body):
-                body_simplified = [self.rco_stmt(s) for s in body] # List[List[stmt]]
-                return Module(...) # TODO: sum(xs, z) -> x1 + x2 + ... + z
+                finalBody = []
+                body_simplified1 = [self.rco_stmt(s) for s in body] # List[List[stmt]]
+
+                # Turn list of list of statements into list of statements
+                for body in body_simplified1:
+                    for statement in body:
+                        finalBody.append(statement)
+
+                return Module(finalBody) # TODO: sum(xs, z) -> x1 + x2 + ... + z
             case _:
                 raise Exception('error remove_complex_operands: ' + repr(p))
     
@@ -130,47 +180,62 @@ class Var(compiler.Compiler):
                 new_val = self.select_arg(Constant(value))
                 return [Instr('movq', [new_val, arg_x])]
             case Assign([x], UnaryOp(USub(), Constant(n))):
-                pass
+                return [Instr('negq', [x]),
+                        Instr('movq', [n, x])]
+                        
             case Assign([x], UnaryOp(USub(), e)):
-                pass
+                num = self.select_stmt(e)
+                return [Instr('negq', [x]),
+                        Instr('movq', [num, x])]
 
             case Assign([x], BinOp(left, Add(), right)) if x == left:
                 # x = x + 1 => [addq $0x1 x]
-                pass
+                return [Instr('addq', [right, x])]
             case Assign([x], BinOp(left, Add(), right)) if x == right:
                 # x = 1 + x => [addq $0x1 x]
-                pass
+                return [Instr('addq', [left, x])]
             case Assign([x], BinOp(left, Add(), right)):
-                pass
+                return [Instr('addq', [left, x]), 
+                        Instr('addq', [right, x])]
                 # x = y + z => [movq y x; addq z x]
 
             case Assign([x], BinOp(left, Sub(), right)) if x == left: 
                 # x = x - arg => [subq arg x]
-                pass
+                return [Instr('subq', [right, x])]
             case Assign([x], BinOp(left, Sub(), right)) if x == right:
                 # x = arg - x => [negq x; addq arg x]
-                pass
+                return [Instr('negq', [x]),
+                        Instr('addq', [left, x])]
             case Assign([x], BinOp(left, Sub(), right)):
                 # x = y - z   => [movq y x; subq z x]
-                pass
+                return [Instr('movq', [left, x]),
+                        Instr('subq', [right, x])]
 
-            case Assign([x], Call(Name('input_int', []))):
-                pass # stores its answer in Reg('rax')
+            case Assign([Name(x)], Call(Name('input_int'), [])):
+                return [Callq('read_int', []), # stores its answer in Reg('rax')
+                        Instr('movq', [Reg('rax'), Variable(x)])] 
             case _:
                 raise Exception('error in select_stmt, unknown: ' + repr(set))
 
     def select_instructions(self, p: Module) -> X86Program:
         match p:
             case Module(body):
-                instrs = [self.select_stmt(s) for s in body] # List[List[instr]]
-                return X86Program(sum(instrs, [])) # sum
+                # finalInstructions = []
+                instrs_list = [self.select_stmt(s) for s in body] # List[List[instr]]
+
+                # Turn list of list of statements into list of statements
+                # for instrs in instrs_list:
+                #     for instruction in instrs:
+                #         finalInstructions.append(instruction)
+
+                return X86Program(sum(instrs_list, [])) # sum
     
     ############################################################################
     # Assign Homes
     ############################################################################
-
+    '''
     @staticmethod
-    def gen_stact_access(i: int) -> arg:
+    def gen_stack_access(i: int) -> arg:
         return Deref('rbp', -(8 + 8 * i))
     
     def assign_homes_arg(self, a: arg, home: Dict[Variable, arg]) -> arg:
