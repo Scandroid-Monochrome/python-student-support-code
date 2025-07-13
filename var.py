@@ -240,11 +240,6 @@ class Var(compiler.Compiler):
                 # finalInstructions = []
                 instrs_list = [self.select_stmt(s) for s in body] # List[List[instr]]
 
-                # Turn list of list of statements into list of statements
-                # for instrs in instrs_list:
-                #     for instruction in instrs:
-                #         finalInstructions.append(instruction)
-
                 return X86Program(sum(instrs_list, [])) # sum
     
     ############################################################################
@@ -257,23 +252,49 @@ class Var(compiler.Compiler):
     
     def assign_homes_arg(self, a: arg, home: Dict[Variable, arg]) -> arg:
         # YOUR CODE HERE
-        pass        
+        match a:
+            case Variable(x):
+                return home[x]
+            case _:
+                return a
 
     def assign_homes_instr(self, i: instr,
                            home: Dict[Variable, arg]) -> instr:
         # YOUR CODE HERE
-        pass        
+       match i:
+            case Instr(name, args):
+                new_args = []
+                for arg in args:
+                    new_args.append(self.assign_homes_arg(arg, home))
+                return Instr(name, new_args)
+            case _:
+                return i
 
     def assign_homes(self, p: X86Program) -> X86Program:
         match p:
-            case x86Program(body):
-                variables = ... body # TODO: Collect variables
+            case X86Program(body):
+                variables = set() # TODO: Collect variables
+
+                for line in body:
+                    match line:
+                        case Instr(_, args):
+                            # Collect any variables if there are any in the line
+                            for arg in args:
+                                match arg:
+                                    case Variable(x):
+                                        variables.add(x)
+
                 home = {}
                 for i, x in enumerate(variables):
                     home[x] = self.gen_stack_access(i)
-                new_body = ... body, self.assign_homes_instr(body, home) # TODO: Swap variables for Derefs
+
+                new_body = []
+                for line in body:
+                    new_body.append(self.assign_homes_instr(line, home)) # TODO: Swap variables for Derefs
+
                 p = X86Program(new_body)
                 p.stack_space = align(8 * len(variables), 16) # Store stack size
+                return p
     
     ############################################################################
     # Patch Instructions
